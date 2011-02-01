@@ -1,4 +1,5 @@
 from django import forms
+from django.core.validators import EMPTY_VALUES
 from django.utils.encoding import smart_unicode
 from pymongo.errors import InvalidId
 from pymongo.objectid import ObjectId
@@ -9,10 +10,10 @@ class ReferenceField(forms.ChoiceField):
     """
     def __init__(self, queryset, *aargs, **kwaargs):
         forms.Field.__init__(self, *aargs, **kwaargs)
-        self.queryset = queryset
+        self._queryset = queryset
 
     def _get_queryset(self):
-        return self._queryset
+        return self._queryset.clone()
 
     def _set_queryset(self, queryset):
         self._queryset = queryset
@@ -29,14 +30,18 @@ class ReferenceField(forms.ChoiceField):
 
     choices = property(_get_choices, forms.ChoiceField._set_choices)
 
-    def clean(self, value):
+    def to_python(self, value):
+        if value in EMPTY_VALUES:
+            return None
+
         try:
-            oid = ObjectId(value)
-            oid = super(ReferenceField, self).clean(oid)
-            obj = self.queryset.get(id=oid)
-        except (TypeError, InvalidId, self.queryset._document.DoesNotExist):
+            obj = self.queryset.get(id=ObjectId(value))
+        except (TypeError, InvalidId, self.queryset._document.DoesNotExist), e:
             raise forms.ValidationError(self.error_messages['invalid_choice'] % {'value':value})
         return obj
+
+    def validate(self, value):
+        return forms.Field.validate(self, value)
 
 class MongoFormFieldGenerator(object):
     """This class generates Django form-fields for mongoengine-fields."""
